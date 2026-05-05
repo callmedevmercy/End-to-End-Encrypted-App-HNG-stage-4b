@@ -18,20 +18,31 @@ The application is split into a frontend client (React/Vite) and a backend serve
 ### Architecture Diagram
 
 ```mermaid
-graph TD
-    ClientA["Client A (Sender)"] <-->|Encrypted WS/REST| Server["Relay Server"]
-    ClientB["Client B (Recipient)"] <-->|Encrypted WS/REST| Server
+flowchart TD
+    %% Main Nodes
+    ClientA("Client A (Sender)")
+    ClientB("Client B (Recipient)")
+    Server("Relay Server")
+
+    %% Edges
+    ClientA <-->|"Encrypted WS/REST"| Server
+    ClientB <-->|"Encrypted WS/REST"| Server
     
     subgraph ClientA_Details ["Client A Internal"]
-        UI_A["React UI"] --> Crypto_A["Web Crypto API"]
+        UI_A("React UI")
+        Crypto_A("Web Crypto API")
+        AES_GCM_A("AES-GCM Key")
+        RSA_A("RSA-OAEP Public Keys")
+
+        UI_A --> Crypto_A
         Crypto_A --> |"Encrypts Plaintext"| AES_GCM_A
-        Crypto_A --> |"Encrypts AES Key"| RSA_A["RSA-OAEP Public Keys"]
+        Crypto_A --> |"Encrypts AES Key"| RSA_A
     end
     
     subgraph Server_Details ["Server Internal"]
-        Auth["Auth API"]
-        Store["Message Store"]
-        WS["WebSocket Hub"]
+        Auth("Auth API")
+        Store("Message Store")
+        WS("WebSocket Hub")
     end
 ```
 
