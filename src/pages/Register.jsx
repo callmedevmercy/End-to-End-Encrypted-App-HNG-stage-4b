@@ -47,6 +47,16 @@ export default function Register() {
       const publicKeyBase64 = await exportPublicKey(keypair.publicKey);
       const saltBase64 = arrayBufferToBase64(salt.buffer);
 
+      // Keep only a non-extractable private key in memory (reduces XSS/devtools exfil risk)
+      const pkcs8 = await window.crypto.subtle.exportKey('pkcs8', keypair.privateKey);
+      const inMemoryPrivateKey = await window.crypto.subtle.importKey(
+        'pkcs8',
+        pkcs8,
+        { name: 'RSA-OAEP', hash: 'SHA-256' },
+        false,
+        ['decrypt']
+      );
+
       setStatusText('Registering with server...');
       
       // 4. Send to server
@@ -63,7 +73,7 @@ export default function Register() {
       const { access_token, user } = res.data;
 
       // 5. Store locally
-      setPrivateKey(keypair.privateKey);
+      setPrivateKey(inMemoryPrivateKey);
       setAuth(user, access_token);
       
       navigate('/');

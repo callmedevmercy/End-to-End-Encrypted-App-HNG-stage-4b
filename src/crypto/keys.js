@@ -88,7 +88,7 @@ export async function unwrapPrivateKey(wrappedKeyBase64, wrappingKey) {
       name: 'RSA-OAEP',
       hash: 'SHA-256',
     },
-    true,
+    false,
     ['decrypt']
   );
 }
