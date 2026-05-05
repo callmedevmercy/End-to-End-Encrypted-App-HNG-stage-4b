@@ -19,13 +19,42 @@ export function arrayBufferToBase64(buffer) {
  * @returns {ArrayBuffer}
  */
 export function base64ToArrayBuffer(base64) {
-  const binary_string = window.atob(base64);
-  const len = binary_string.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    bytes[i] = binary_string.charCodeAt(i);
+  if (!base64 || typeof base64 !== 'string') {
+    throw new Error(`Invalid base64 string provided to base64ToArrayBuffer: ${typeof base64}`);
   }
-  return bytes.buffer;
+  
+  // Remove PEM headers and all whitespace/newlines
+  let normalized = base64
+    .replace(/-----BEGIN [^-]+-----/g, '')
+    .replace(/-----END [^-]+-----/g, '')
+    .replace(/[\s\r\n]+/g, '');
+    
+  // Normalize base64url to standard base64
+  normalized = normalized.replace(/-/g, '+').replace(/_/g, '/');
+  
+  // Strip ALL non-base64 characters
+  normalized = normalized.replace(/[^A-Za-z0-9+/]/g, '');
+
+  if (normalized.length % 4 === 1) {
+    throw new Error(`Invalid base64 string (length 1 mod 4). Original string: "${base64.substring(0, 50)}..."`);
+  }
+  
+  // Add padding if missing
+  while (normalized.length % 4 !== 0) {
+    normalized += '=';
+  }
+  
+  try {
+    const binary_string = window.atob(normalized);
+    const len = binary_string.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binary_string.charCodeAt(i);
+    }
+    return bytes.buffer;
+  } catch (err) {
+    throw new Error(`atob failed! Original string: "${base64.substring(0, 50)}...". Error: ${err.message}`);
+  }
 }
 
 /**
