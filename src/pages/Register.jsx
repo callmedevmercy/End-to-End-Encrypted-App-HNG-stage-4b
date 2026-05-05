@@ -70,11 +70,11 @@ export default function Register() {
       };
 
       const res = await api.post('/auth/register', payload);
-      const { access_token, user } = res.data;
+      const { access_token, refresh_token, user } = res.data;
 
       // 5. Store locally
-      setPrivateKey(inMemoryPrivateKey);
-      setAuth(user, access_token);
+      setPrivateKey(keypair.privateKey);
+      setAuth(user, access_token, refresh_token);
       
       navigate('/');
     } catch (err) {

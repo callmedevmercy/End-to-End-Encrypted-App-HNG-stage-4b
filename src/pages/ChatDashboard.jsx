@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Search, Send, Lock, LogOut, Loader2, MessageSquare, ShieldCheck } from 'lucide-react';
+import { Search, Send, Lock, LogOut, Loader2, MessageSquare, ShieldCheck, Menu, X, ChevronLeft } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useChatStore } from '../store/chatStore';
 import api from '../services/api';
@@ -30,16 +30,17 @@ export default function ChatDashboard() {
   const [messageInput, setMessageInput] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
-  
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   const messagesEndRef = useRef(null);
 
   // Initialize WebSocket and fetch conversations
   useEffect(() => {
     fetchConversations();
-    
+
     wsClient.connect(accessToken);
     wsClient.on('message.receive', handleReceiveMessage);
-    
+
     return () => {
       wsClient.off('message.receive', handleReceiveMessage);
       wsClient.disconnect();
@@ -182,7 +183,8 @@ export default function ChatDashboard() {
   const startConversation = (partner) => {
     setSearchQuery('');
     setSearchResults([]);
-    
+    setSidebarOpen(false); // Close sidebar on mobile after selecting
+
     // Add to conversations list optimistically if not exists
     if (!conversations.find(c => c.user_id === partner.id)) {
       setConversations([{
@@ -192,8 +194,27 @@ export default function ChatDashboard() {
         last_message_at: new Date().toISOString()
       }, ...conversations]);
     }
-    
+
     setActiveConversation(partner.id);
+  };
+
+  const handleLogout = async () => {
+    const refreshToken = sessionStorage.getItem('refresh_token');
+    try {
+      if (refreshToken) {
+        await api.post('/auth/logout', { refresh_token: refreshToken });
+      }
+    } catch (err) {
+      // Swallow error — we still clear client state
+      console.warn('Server logout failed, clearing client session.', err);
+    } finally {
+      logout();
+    }
+  };
+
+  const handleSelectConversation = (id) => {
+    setActiveConversation(id);
+    setSidebarOpen(false); // Close sidebar on mobile after selecting
   };
 
   const activeConvoDetails = conversations.find(c => c.user_id === activeConversationId) || 
@@ -201,17 +222,44 @@ export default function ChatDashboard() {
 
   return (
     <div className="flex h-screen bg-[var(--color-dark-bg)] text-white overflow-hidden">
-      
+
+      {/* Mobile overlay backdrop */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/60 z-20 md:hidden backdrop-blur-sm"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       {/* Sidebar */}
-      <div className="w-80 flex flex-col border-r border-[var(--color-dark-border)] bg-[var(--color-dark-panel)]/50 z-10">
+      <div className={`
+        fixed md:relative inset-y-0 left-0 z-30 md:z-10
+        w-80 flex flex-col
+        border-r border-[var(--color-dark-border)]
+        bg-[var(--color-dark-panel)]
+        transition-transform duration-300 ease-in-out
+        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+      `}>
         <div className="p-4 glass-header flex items-center justify-between">
           <div className="flex items-center gap-2">
-             <ShieldCheck size={24} className="text-primary" />
-             <h2 className="font-bold tracking-tight">WhisperBox</h2>
+            <ShieldCheck size={24} className="text-primary" />
+            <h2 className="font-bold tracking-tight">WhisperBox</h2>
           </div>
-          <button onClick={logout} className="p-2 rounded-full hover:bg-white/10 text-[var(--color-dark-muted)] hover:text-white transition-colors" title="Logout">
-            <LogOut size={18} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={handleLogout}
+              className="p-2 rounded-full hover:bg-white/10 text-[var(--color-dark-muted)] hover:text-white transition-colors"
+              title="Logout"
+            >
+              <LogOut size={18} />
+            </button>
+            <button
+              onClick={() => setSidebarOpen(false)}
+              className="p-2 rounded-full hover:bg-white/10 text-[var(--color-dark-muted)] hover:text-white transition-colors md:hidden"
+            >
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
         <div className="p-4 border-b border-[var(--color-dark-border)]">
@@ -261,9 +309,9 @@ export default function ChatDashboard() {
                 </div>
               ) : (
                 conversations.map(c => (
-                  <button 
+                  <button
                     key={c.user_id}
-                    onClick={() => setActiveConversation(c.user_id)}
+                    onClick={() => handleSelectConversation(c.user_id)}
                     className={`w-full text-left px-4 py-3 transition-colors flex items-center gap-3 border-l-2 ${activeConversationId === c.user_id ? 'bg-white/10 border-primary' : 'hover:bg-white/5 border-transparent'}`}
                   >
                     <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary/80 to-purple-600 flex items-center justify-center text-white font-bold text-lg shadow-sm">
@@ -291,26 +339,34 @@ export default function ChatDashboard() {
       </div>
 
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col bg-[var(--color-dark-bg)] relative">
+      <div className="flex-1 flex flex-col bg-[var(--color-dark-bg)] relative min-w-0">
         {/* Background glow effects */}
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-primary/5 rounded-full blur-[100px] pointer-events-none"></div>
 
         {activeConversationId ? (
           <>
             {/* Chat Header */}
-            <div className="glass-header px-6 py-4 flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary/80 to-purple-600 flex items-center justify-center text-white font-bold shadow-sm">
+            <div className="glass-header px-4 md:px-6 py-3 md:py-4 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                {/* Mobile back button */}
+                <button
+                  onClick={() => setSidebarOpen(true)}
+                  className="md:hidden p-2 -ml-1 rounded-full hover:bg-white/10 text-white/60 hover:text-white transition-colors"
+                >
+                  <ChevronLeft size={20} />
+                </button>
+                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary/80 to-purple-600 flex items-center justify-center text-white font-bold shadow-sm flex-shrink-0">
                   {activeConvoDetails?.display_name?.charAt(0).toUpperCase()}
                 </div>
-                <div>
-                  <h3 className="font-semibold text-lg leading-tight">{activeConvoDetails?.display_name}</h3>
-                  <p className="text-xs text-[var(--color-dark-muted)]">@{activeConvoDetails?.username}</p>
+                <div className="min-w-0">
+                  <h3 className="font-semibold text-[15px] leading-tight truncate">{activeConvoDetails?.display_name}</h3>
+                  <p className="text-xs text-[var(--color-dark-muted)] truncate">@{activeConvoDetails?.username}</p>
                 </div>
               </div>
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium">
+              <div className="flex-shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium">
                 <Lock size={12} className="animate-secure-lock" />
-                End-to-End Encrypted
+                <span className="hidden sm:inline">End-to-End Encrypted</span>
+                <span className="sm:hidden">E2EE</span>
               </div>
             </div>
 
@@ -367,13 +423,20 @@ export default function ChatDashboard() {
             </div>
           </>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-[var(--color-dark-muted)] relative z-10">
-            <div className="w-24 h-24 mb-6 rounded-3xl bg-white/5 border border-white/10 flex items-center justify-center shadow-2xl backdrop-blur-xl">
-              <ShieldCheck size={48} className="text-primary opacity-80" />
+          <div className="flex-1 flex flex-col items-center justify-center text-[var(--color-dark-muted)] relative z-10 px-4">
+            {/* Mobile open sidebar button */}
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="md:hidden mb-6 flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white/70 hover:text-white hover:bg-white/10 transition-colors text-sm"
+            >
+              <Menu size={18} /> Open Conversations
+            </button>
+            <div className="w-20 h-20 mb-6 rounded-3xl bg-white/5 border border-white/10 flex items-center justify-center shadow-2xl backdrop-blur-xl">
+              <ShieldCheck size={40} className="text-primary opacity-80" />
             </div>
-            <h2 className="text-2xl font-bold text-white mb-2 tracking-tight">WhisperBox</h2>
-            <p className="text-sm max-w-sm text-center">
-              Select a conversation to start messaging. All messages are end-to-end encrypted with AES-256-GCM.
+            <h2 className="text-xl font-bold text-white mb-2 tracking-tight">WhisperBox</h2>
+            <p className="text-sm max-w-xs text-center">
+              Select a conversation to start messaging securely. All messages are end-to-end encrypted with AES-256-GCM.
             </p>
           </div>
         )}

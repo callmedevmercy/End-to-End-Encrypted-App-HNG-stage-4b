@@ -25,7 +25,7 @@ export default function Login() {
     try {
       // 1. Authenticate with server
       const res = await api.post('/auth/login', { username, password });
-      const { access_token, user } = res.data;
+      const { access_token, refresh_token, user } = res.data;
 
       setStatusText('Unlocking Secure Session...');
       
@@ -39,7 +39,7 @@ export default function Login() {
 
       // 4. Update store
       setPrivateKey(privateKey);
-      setAuth(user, access_token);
+      setAuth(user, access_token, refresh_token);
       
       navigate('/');
     } catch (err) {
