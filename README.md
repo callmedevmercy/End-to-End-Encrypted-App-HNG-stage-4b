@@ -25,8 +25,11 @@ flowchart TD
     Server("Relay Server")
 
     %% Edges
-    ClientA <-->|"Encrypted WS/REST"| Server
-    ClientB <-->|"Encrypted WS/REST"| Server
+    ClientA -- "Encrypted WS/REST" --> Server
+    Server -- "Encrypted WS/REST" --> ClientA
+    
+    ClientB -- "Encrypted WS/REST" --> Server
+    Server -- "Encrypted WS/REST" --> ClientB
     
     subgraph ClientA_Details ["Client A Internal"]
         UI_A("React UI")
