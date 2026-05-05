@@ -19,19 +19,19 @@ The application is split into a frontend client (React/Vite) and a backend serve
 
 ```mermaid
 graph TD
-    ClientA[Client A (Sender)] <-->|Encrypted WS/REST| Server[Relay Server]
-    ClientB[Client B (Recipient)] <-->|Encrypted WS/REST| Server
+    ClientA["Client A (Sender)"] <-->|Encrypted WS/REST| Server["Relay Server"]
+    ClientB["Client B (Recipient)"] <-->|Encrypted WS/REST| Server
     
-    subgraph ClientA_Details [Client A Internal]
-        UI_A[React UI] --> Crypto_A[Web Crypto API]
+    subgraph ClientA_Details ["Client A Internal"]
+        UI_A["React UI"] --> Crypto_A["Web Crypto API"]
         Crypto_A --> |"Encrypts Plaintext"| AES_GCM_A
-        Crypto_A --> |"Encrypts AES Key"| RSA_A[RSA-OAEP Public Keys]
+        Crypto_A --> |"Encrypts AES Key"| RSA_A["RSA-OAEP Public Keys"]
     end
     
-    subgraph Server_Details [Server Internal]
-        Auth[Auth API]
-        Store[Message Store]
-        WS[WebSocket Hub]
+    subgraph Server_Details ["Server Internal"]
+        Auth["Auth API"]
+        Store["Message Store"]
+        WS["WebSocket Hub"]
     end
 ```
 
