@@ -1,0 +1,90 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #8b5cf6; /* Vivid purple */
+  --color-primary-hover: #7c3aed;
+  --color-dark-bg: #0f1115;
+  --color-dark-panel: #1a1d24;
+  --color-dark-border: #2a2e39;
+  --color-dark-text: #e2e8f0;
+  --color-dark-muted: #94a3b8;
+  --color-success: #10b981;
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+  
+  body {
+    @apply bg-[var(--color-dark-bg)] text-[var(--color-dark-text)] antialiased font-sans selection:bg-primary/30;
+    margin: 0;
+    min-height: 100vh;
+  }
+
+  /* Custom Scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-white/10 rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-white/20;
+  }
+}
+
+@layer utilities {
+  .glass-panel {
+    @apply bg-[var(--color-dark-panel)]/80 backdrop-blur-md border border-[var(--color-dark-border)] shadow-xl;
+  }
+  
+  .glass-header {
+    @apply bg-[var(--color-dark-bg)]/80 backdrop-blur-md border-b border-[var(--color-dark-border)] sticky top-0 z-10;
+  }
+
+  .glass-input {
+    @apply bg-white/5 border border-white/10 rounded-xl px-4 py-2 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all placeholder-white/30 text-white backdrop-blur-sm;
+  }
+
+  .btn-primary {
+    @apply bg-primary hover:bg-primary-hover text-white font-medium py-2.5 px-4 rounded-xl shadow-lg shadow-primary/20 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2;
+  }
+
+  .btn-secondary {
+    @apply bg-white/5 hover:bg-white/10 text-white font-medium py-2.5 px-4 rounded-xl transition-all active:scale-[0.98] flex items-center justify-center gap-2 border border-white/5;
+  }
+  
+  .message-bubble-in {
+    @apply bg-[var(--color-dark-panel)] text-white rounded-2xl rounded-tl-sm px-4 py-2.5 shadow-sm max-w-[80%];
+  }
+  
+  .message-bubble-out {
+    @apply bg-primary text-white rounded-2xl rounded-tr-sm px-4 py-2.5 shadow-sm max-w-[80%];
+  }
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out forwards;
+}
+
+@keyframes pulse-lock {
+  0% { transform: scale(1); filter: drop-shadow(0 0 0px var(--color-success)); }
+  50% { transform: scale(1.1); filter: drop-shadow(0 0 6px var(--color-success)); }
+  100% { transform: scale(1); filter: drop-shadow(0 0 0px var(--color-success)); }
+}
+
+.animate-secure-lock {
+  animation: pulse-lock 2s infinite ease-in-out;
+  color: var(--color-success);
+}
