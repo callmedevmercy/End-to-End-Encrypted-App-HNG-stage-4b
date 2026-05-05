@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Search, Send, Lock, LogOut, Loader2, MessageSquare, ShieldCheck } from 'lucide-react';
+import { Search, Send, Lock, LogOut, Loader2, MessageSquare, ShieldCheck, Menu, X, ChevronLeft, Plus, Settings } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useChatStore } from '../store/chatStore';
 import api from '../services/api';
@@ -30,16 +30,17 @@ export default function ChatDashboard() {
   const [messageInput, setMessageInput] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
-  
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   const messagesEndRef = useRef(null);
 
   // Initialize WebSocket and fetch conversations
   useEffect(() => {
     fetchConversations();
-    
+
     wsClient.connect(accessToken);
     wsClient.on('message.receive', handleReceiveMessage);
-    
+
     return () => {
       wsClient.off('message.receive', handleReceiveMessage);
       wsClient.disconnect();
@@ -80,6 +81,23 @@ export default function ChatDashboard() {
       loadMessageHistory(activeConversationId);
     }
   }, [activeConversationId]);
+
+  // Fallback: silent polling every 3 seconds to guarantee delivery if WS drops
+  useEffect(() => {
+    if (!activeConversationId) return;
+    const intervalId = setInterval(() => {
+      // Fetch history silently (no loading spinner)
+      api.get(`/conversations/${activeConversationId}/messages`).then(async (res) => {
+        const encryptedMessages = res.data.reverse();
+        const decryptedMessages = await Promise.all(
+          encryptedMessages.map(msg => decryptMessagePayload(msg))
+        );
+        addMessages(activeConversationId, decryptedMessages);
+      }).catch(err => console.error('Silent poll failed', err));
+    }, 3000);
+
+    return () => clearInterval(intervalId);
+  }, [activeConversationId, privateKey, user.id]);
 
   // Auto-scroll to bottom of chat
   useEffect(() => {
@@ -137,52 +155,84 @@ export default function ChatDashboard() {
     e.preventDefault();
     if (!messageInput.trim() || !activeConversationId || isSending) return;
 
+    const plaintext = messageInput.trim();
+    setMessageInput(''); // Clear input immediately for better UX
     setIsSending(true);
+
     try {
       // 1. Get recipient public key
       const pubKeyRes = await api.get(`/users/${activeConversationId}/public-key`);
-      const recipientPubKey = await importPublicKey(pubKeyRes.data.public_key);
+      const recipientKeyBase64 = pubKeyRes.data?.public_key || pubKeyRes.data;
       
-      // 2. Get own public key (for encryptedKeyForSelf)
+      let recipientPubKey;
+      try {
+        recipientPubKey = await importPublicKey(recipientKeyBase64);
+      } catch (e) {
+        alert("Cannot send message: The recipient's encryption key is corrupted or missing. They may have registered on an older version of the app.");
+        setIsSending(false);
+        setMessageInput(plaintext);
+        return;
+      }
+
+      // 2. Get own public key (so sender can decrypt their own sent messages)
       const ownPubKeyRes = await api.get(`/users/${user.id}/public-key`);
-      const ownPubKey = await importPublicKey(ownPubKeyRes.data.public_key);
+      const ownKeyBase64 = ownPubKeyRes.data?.public_key || ownPubKeyRes.data;
+      
+      let ownPubKey;
+      try {
+        ownPubKey = await importPublicKey(ownKeyBase64);
+      } catch (e) {
+        alert("Cannot send message: Your own encryption key is corrupted. Please log out and register a new account to generate valid keys.");
+        setIsSending(false);
+        setMessageInput(plaintext);
+        return;
+      }
 
-      // 3. Generate AES-GCM message key
+      // 3. Generate a fresh AES-GCM key + encrypt the message
       const aesKey = await generateMessageKey();
-
-      // 4. Encrypt message
-      const plaintext = messageInput.trim();
       const { ciphertext, iv } = await encryptMessage(plaintext, aesKey);
 
-      // 5. Encrypt AES key for recipient and self
-      const encryptedKey = await encryptKeyWithRSA(aesKey, recipientPubKey);
+      // 4. Encrypt the AES key for both recipient and self
+      const encryptedKey        = await encryptKeyWithRSA(aesKey, recipientPubKey);
       const encryptedKeyForSelf = await encryptKeyWithRSA(aesKey, ownPubKey);
 
-      const payload = {
-        ciphertext,
-        iv,
-        encryptedKey,
-        encryptedKeyForSelf
+      const payload = { ciphertext, iv, encryptedKey, encryptedKeyForSelf };
+
+      // 5. Optimistic update — show message immediately in sender's chat
+      //    This makes the UI feel instant without waiting for WS echo
+      const optimisticMsg = {
+        id: `optimistic-${Date.now()}`,
+        from_user_id: user.id,
+        to_user_id: activeConversationId,
+        payload,
+        delivered: false,
+        created_at: new Date().toISOString(),
+        plaintext, // already have it — no need to decrypt
       };
+      addMessage(activeConversationId, optimisticMsg);
 
-      // 6. Send via WS (or REST fallback)
-      wsClient.send('message.send', {
-        to: activeConversationId,
-        payload
-      });
+      // 6. ALWAYS use REST to guarantee persistence and delivery.
+      // The backend WebSocket `message.send` is silently dropping messages.
+      // By forcing REST, the database guarantees it saves, and our 3-second polling guarantees the recipient sees it.
+      await api.post('/messages', { to: activeConversationId, payload });
 
-      setMessageInput('');
+      // Refresh conversation list to bump the "last message" timestamp
+      fetchConversations();
     } catch (err) {
       console.error('Send failed', err);
+      // Restore the message text so the user can retry
+      setMessageInput(plaintext);
     } finally {
       setIsSending(false);
     }
   };
 
+
   const startConversation = (partner) => {
     setSearchQuery('');
     setSearchResults([]);
-    
+    setSidebarOpen(false); // Close sidebar on mobile after selecting
+
     // Add to conversations list optimistically if not exists
     if (!conversations.find(c => c.user_id === partner.id)) {
       setConversations([{
@@ -192,35 +242,79 @@ export default function ChatDashboard() {
         last_message_at: new Date().toISOString()
       }, ...conversations]);
     }
-    
+
     setActiveConversation(partner.id);
+  };
+
+  const handleLogout = async () => {
+    const refreshToken = sessionStorage.getItem('refresh_token');
+    try {
+      if (refreshToken) {
+        await api.post('/auth/logout', { refresh_token: refreshToken });
+      }
+    } catch (err) {
+      // Swallow error — we still clear client state
+      console.warn('Server logout failed, clearing client session.', err);
+    } finally {
+      logout();
+    }
+  };
+
+  const handleSelectConversation = (id) => {
+    setActiveConversation(id);
+    setSidebarOpen(false); // Close sidebar on mobile after selecting
   };
 
   const activeConvoDetails = conversations.find(c => c.user_id === activeConversationId) || 
     searchResults.find(u => u.id === activeConversationId);
 
   return (
-    <div className="flex h-screen bg-[var(--color-dark-bg)] text-white overflow-hidden">
-      
+    <div className="flex h-screen text-white overflow-hidden" style={{ background: 'var(--color-bg)' }}>
+
       {/* Sidebar */}
-      <div className="w-80 flex flex-col border-r border-[var(--color-dark-border)] bg-[var(--color-dark-panel)]/50 z-10">
-        <div className="p-4 glass-header flex items-center justify-between">
-          <div className="flex items-center gap-2">
-             <ShieldCheck size={24} className="text-primary" />
-             <h2 className="font-bold tracking-tight">WhisperBox</h2>
+      <div
+        className={`
+          flex-col w-full md:w-80
+          transition-none
+          ${activeConversationId ? 'hidden md:flex' : 'flex'}
+        `}
+        style={{ background: 'var(--color-surface)', borderRight: '1px solid var(--color-border)' }}
+      >
+        <div className="glass-header p-4 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'var(--color-tertiary)' }}>
+              <ShieldCheck size={18} className="text-[#1a1203]" />
+            </div>
+            <h2 className="font-bold tracking-tight" style={{ color: 'var(--color-text)' }}>WhisperBox</h2>
           </div>
-          <button onClick={logout} className="p-2 rounded-full hover:bg-white/10 text-[var(--color-dark-muted)] hover:text-white transition-colors" title="Logout">
-            <LogOut size={18} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={handleLogout}
+              className="p-2 rounded-full transition-colors"
+              style={{ color: 'var(--color-text-muted)' }}
+              onMouseEnter={e => e.currentTarget.style.color = 'white'}
+              onMouseLeave={e => e.currentTarget.style.color = 'var(--color-text-muted)'}
+              title="Logout"
+            >
+              <LogOut size={18} />
+            </button>
+            <button
+              onClick={() => setSidebarOpen(false)}
+              className="p-2 rounded-full transition-colors md:hidden"
+              style={{ color: 'var(--color-muted)' }}
+            >
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
-        <div className="p-4 border-b border-[var(--color-dark-border)]">
+        <div className="p-4" style={{ borderBottom: '1px solid var(--color-border)' }}>
           <div className="relative">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
-            <input 
-              type="text" 
-              placeholder="Search users..." 
-              className="glass-input w-full pl-9 py-2 text-sm"
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--color-text-muted)' }} />
+            <input
+              type="text"
+              placeholder="Search users…"
+              className="glass-input pl-9 py-2 text-sm"
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
             />
@@ -230,22 +324,25 @@ export default function ChatDashboard() {
         <div className="flex-1 overflow-y-auto">
           {searchQuery ? (
             <div>
-              <div className="px-4 py-2 text-xs font-semibold text-[var(--color-dark-muted)] uppercase tracking-wider">Search Results</div>
+              <div className="px-4 py-2 text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--color-text-muted)' }}>Search Results</div>
               {searchResults.length === 0 ? (
-                <div className="px-4 py-3 text-sm text-[var(--color-dark-muted)]">No users found</div>
+                <div className="px-4 py-3 text-sm" style={{ color: 'var(--color-text-muted)' }}>No users found</div>
               ) : (
                 searchResults.map(u => (
-                  <button 
+                  <button
                     key={u.id}
                     onClick={() => startConversation(u)}
-                    className="w-full text-left px-4 py-3 hover:bg-white/5 transition-colors flex items-center gap-3"
+                    className="w-full text-left px-4 py-3 transition-colors flex items-center gap-3"
+                    style={{ borderRadius: 0 }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--color-surface)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                   >
-                    <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold">
+                    <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-[#1a1203] text-sm flex-shrink-0" style={{ background: 'var(--color-tertiary)' }}>
                       {u.display_name.charAt(0).toUpperCase()}
                     </div>
                     <div className="flex-1 overflow-hidden">
-                      <div className="font-medium truncate">{u.display_name}</div>
-                      <div className="text-xs text-[var(--color-dark-muted)] truncate">@{u.username}</div>
+                      <div className="font-medium truncate" style={{ color: 'var(--color-text)' }}>{u.display_name}</div>
+                      <div className="text-xs truncate" style={{ color: 'var(--color-text-muted)' }}>@{u.username}</div>
                     </div>
                   </button>
                 ))
@@ -254,32 +351,42 @@ export default function ChatDashboard() {
           ) : (
             <div>
               {conversations.length === 0 ? (
-                <div className="p-8 text-center text-[var(--color-dark-muted)] flex flex-col items-center">
-                  <MessageSquare size={32} className="mb-3 opacity-50" />
+                <div className="p-8 text-center flex flex-col items-center" style={{ color: 'var(--color-text-muted)' }}>
+                  <MessageSquare size={32} className="mb-3 opacity-40" />
                   <p className="text-sm">No conversations yet.</p>
                   <p className="text-xs mt-1">Search for a user to start messaging.</p>
                 </div>
               ) : (
                 conversations.map(c => (
-                  <button 
+                  <button
                     key={c.user_id}
-                    onClick={() => setActiveConversation(c.user_id)}
-                    className={`w-full text-left px-4 py-3 transition-colors flex items-center gap-3 border-l-2 ${activeConversationId === c.user_id ? 'bg-white/10 border-primary' : 'hover:bg-white/5 border-transparent'}`}
+                    onClick={() => handleSelectConversation(c.user_id)}
+                    className="w-full text-left px-4 py-3 transition-all flex items-center gap-3"
+                    style={{
+                      borderLeft: activeConversationId === c.user_id
+                        ? '3px solid var(--color-primary)'
+                        : '3px solid transparent',
+                      background: activeConversationId === c.user_id
+                        ? 'rgba(40,43,164,0.12)'
+                        : 'transparent',
+                    }}
+                    onMouseEnter={e => { if (activeConversationId !== c.user_id) e.currentTarget.style.background = 'rgba(93,98,145,0.1)'; }}
+                    onMouseLeave={e => { if (activeConversationId !== c.user_id) e.currentTarget.style.background = 'transparent'; }}
                   >
-                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary/80 to-purple-600 flex items-center justify-center text-white font-bold text-lg shadow-sm">
+                    <div className="w-11 h-11 rounded-full flex items-center justify-center font-bold text-[#1a1203] text-base flex-shrink-0" style={{ background: 'var(--color-tertiary)' }}>
                       {c.display_name.charAt(0).toUpperCase()}
                     </div>
                     <div className="flex-1 overflow-hidden">
                       <div className="flex justify-between items-baseline mb-0.5">
-                        <div className="font-medium truncate pr-2 text-[15px]">{c.display_name}</div>
+                        <div className="font-semibold truncate pr-2 text-[14px]" style={{ color: 'var(--color-text)' }}>{c.display_name}</div>
                         {c.last_message_at && (
-                          <div className="text-[11px] text-[var(--color-dark-muted)] whitespace-nowrap">
+                          <div className="text-[11px] whitespace-nowrap" style={{ color: 'var(--color-text-muted)' }}>
                             {new Date(c.last_message_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </div>
                         )}
                       </div>
-                      <div className="text-xs text-[var(--color-dark-muted)] flex items-center gap-1">
-                        <Lock size={10} className="text-success inline" /> Encrypted
+                      <div className="text-xs flex items-center gap-1" style={{ color: 'var(--color-text-muted)' }}>
+                        <Lock size={9} style={{ color: 'var(--color-success)' }} /> Encrypted
                       </div>
                     </div>
                   </button>
@@ -291,52 +398,57 @@ export default function ChatDashboard() {
       </div>
 
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col bg-[var(--color-dark-bg)] relative">
-        {/* Background glow effects */}
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-primary/5 rounded-full blur-[100px] pointer-events-none"></div>
+      <div className={`flex-1 flex-col relative min-w-0 ${!activeConversationId ? 'hidden md:flex' : 'flex'}`} style={{ background: 'var(--color-bg)' }}>
 
         {activeConversationId ? (
           <>
             {/* Chat Header */}
-            <div className="glass-header px-6 py-4 flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary/80 to-purple-600 flex items-center justify-center text-white font-bold shadow-sm">
-                  {activeConvoDetails?.display_name?.charAt(0).toUpperCase()}
-                </div>
-                <div>
-                  <h3 className="font-semibold text-lg leading-tight">{activeConvoDetails?.display_name}</h3>
-                  <p className="text-xs text-[var(--color-dark-muted)]">@{activeConvoDetails?.username}</p>
+            <div className="glass-header px-4 md:px-6 py-4 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setActiveConversation(null)}
+                  className="md:hidden p-1.5 -ml-1 rounded-full transition-colors"
+                  style={{ color: 'var(--color-text-muted)' }}
+                >
+                  <ChevronLeft size={20} />
+                </button>
+                <div className="min-w-0">
+                  <h3 className="font-semibold text-lg leading-tight truncate" style={{ color: 'var(--color-text)' }}>{activeConvoDetails?.display_name}</h3>
                 </div>
               </div>
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium">
-                <Lock size={12} className="animate-secure-lock" />
-                End-to-End Encrypted
+              <div
+                className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-[#1a1203] text-sm flex-shrink-0"
+                style={{ background: 'var(--color-tertiary)' }}
+              >
+                {activeConvoDetails?.display_name?.charAt(0).toUpperCase()}
               </div>
             </div>
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-4 relative z-0 scroll-smooth">
+            <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 relative z-0 scroll-smooth">
+              
+              {/* Secure Session Pill */}
+              <div className="flex justify-center mt-2 mb-6">
+                <div className="px-4 py-1.5 rounded-full text-xs font-bold tracking-wider flex items-center gap-2" style={{ background: 'rgba(189,170,116,0.1)', border: '1px solid rgba(189,170,116,0.3)', color: 'var(--color-tertiary)' }}>
+                  <Lock size={12} className="animate-secure-lock" /> SECURE SESSION ACTIVE
+                </div>
+              </div>
+
               {isLoadingHistory ? (
-                <div className="flex justify-center items-center h-full">
-                  <Loader2 size={24} className="animate-spin text-primary" />
+                <div className="flex justify-center items-center py-10">
+                  <Loader2 size={24} className="animate-spin" style={{ color: 'var(--color-tertiary)' }} />
                 </div>
               ) : (
                 <>
-                  {messages[activeConversationId]?.length === 0 && (
-                    <div className="text-center text-[var(--color-dark-muted)] mt-10 text-sm bg-white/5 mx-auto max-w-sm p-4 rounded-2xl border border-white/5 backdrop-blur-sm">
-                      <Lock size={24} className="mx-auto mb-2 text-primary/70" />
-                      Messages are end-to-end encrypted.<br/>No one outside of this chat, not even WhisperBox, can read or listen to them.
-                    </div>
-                  )}
                   {messages[activeConversationId]?.map((msg, i) => {
                     const isMe = msg.from_user_id === user.id;
                     return (
-                      <div key={msg.id || i} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                      <div key={msg.id || i} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
                         <div className={isMe ? 'message-bubble-out' : 'message-bubble-in'}>
                           <p className="text-[15px] leading-relaxed break-words">{msg.plaintext}</p>
-                          <div className={`text-[10px] mt-1 text-right flex items-center justify-end gap-1 ${isMe ? 'text-white/70' : 'text-white/40'}`}>
-                             {new Date(msg.created_at || new Date()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </div>
+                        </div>
+                        <div className="text-[11px] mt-1.5 font-medium px-1" style={{ color: 'var(--color-text-muted)' }}>
+                          {new Date(msg.created_at || new Date()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </div>
                       </div>
                     );
@@ -347,33 +459,47 @@ export default function ChatDashboard() {
             </div>
 
             {/* Input Area */}
-            <div className="p-4 bg-[var(--color-dark-panel)]/80 backdrop-blur-md border-t border-[var(--color-dark-border)] z-10">
-              <form onSubmit={handleSendMessage} className="flex gap-2 max-w-4xl mx-auto">
+            <div className="p-4 z-10 bg-[var(--color-bg)]">
+              <form onSubmit={handleSendMessage} className="flex items-center gap-3 max-w-4xl mx-auto rounded-2xl px-2 py-2" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+                <button type="button" className="p-2 ml-1" style={{ color: 'var(--color-text-muted)' }}>
+                  <Plus size={20} />
+                </button>
                 <input
                   type="text"
                   value={messageInput}
                   onChange={e => setMessageInput(e.target.value)}
-                  placeholder="Type an encrypted message..."
-                  className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-5 py-3.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all placeholder-white/30 text-white shadow-inner"
+                  placeholder="Type a secure message..."
+                  className="flex-1 bg-transparent border-none text-[15px] outline-none"
+                  style={{ color: 'var(--color-text)' }}
                 />
-                <button 
-                  type="submit" 
-                  disabled={!messageInput.trim() || isSending}
-                  className="btn-primary rounded-2xl w-14 flex items-center justify-center disabled:opacity-50"
-                >
-                  {isSending ? <Loader2 size={20} className="animate-spin" /> : <Send size={20} className="ml-1" />}
-                </button>
+                {messageInput.trim() && (
+                  <button
+                    type="submit"
+                    disabled={isSending}
+                    className="p-2 mr-1 rounded-xl transition-transform"
+                    style={{ background: 'var(--color-tertiary)', color: '#1a1203' }}
+                  >
+                    {isSending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+                  </button>
+                )}
               </form>
+              <div className="text-center mt-3 text-[10px] font-medium tracking-wide uppercase" style={{ color: 'var(--color-text-muted)' }}>
+                Messages are secured with RSA-OAEP / AES-GCM
+              </div>
             </div>
+
           </>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-[var(--color-dark-muted)] relative z-10">
-            <div className="w-24 h-24 mb-6 rounded-3xl bg-white/5 border border-white/10 flex items-center justify-center shadow-2xl backdrop-blur-xl">
-              <ShieldCheck size={48} className="text-primary opacity-80" />
+          <div className="flex-1 flex flex-col items-center justify-center relative z-10 px-4" style={{ color: 'var(--color-text-muted)' }}>
+            <div
+              className="w-20 h-20 mb-6 rounded-3xl flex items-center justify-center shadow-2xl"
+              style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
+            >
+              <ShieldCheck size={38} style={{ color: 'var(--color-tertiary)', opacity: 0.9 }} />
             </div>
-            <h2 className="text-2xl font-bold text-white mb-2 tracking-tight">WhisperBox</h2>
-            <p className="text-sm max-w-sm text-center">
-              Select a conversation to start messaging. All messages are end-to-end encrypted with AES-256-GCM.
+            <h2 className="text-xl font-bold mb-2 tracking-tight" style={{ color: 'var(--color-text)' }}>WhisperBox</h2>
+            <p className="text-sm max-w-xs text-center">
+              Select a conversation to start messaging. All content is end-to-end encrypted with AES-256-GCM.
             </p>
           </div>
         )}

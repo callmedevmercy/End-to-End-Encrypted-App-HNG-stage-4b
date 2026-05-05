@@ -1,90 +1,154 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --color-primary: #8b5cf6; /* Vivid purple */
-  --color-primary-hover: #7c3aed;
-  --color-dark-bg: #0f1115;
-  --color-dark-panel: #1a1d24;
-  --color-dark-border: #2a2e39;
-  --color-dark-text: #e2e8f0;
-  --color-dark-muted: #94a3b8;
-  --color-success: #10b981;
+  --color-primary:       #282B4A;
+  --color-secondary:     #5D6291;
+  --color-tertiary:      #BDAA74;
+  --color-neutral:       #787679;
+  
+  /* Semantic / Theme Mapping */
+  --color-bg:            #282B4A;
+  --color-surface:       #1E2038;
+  --color-border:        #3A3E63;
+  --color-text:          #FFFFFF;
+  --color-text-muted:    #A3A7C2;
+  --color-success:       #10b981;
 }
 
+/* ─── Base ──────────────────────────────────────────────────────────────── */
 @layer base {
-  :root {
-    color-scheme: dark;
-  }
-  
+  :root { color-scheme: dark; }
+
+  * { box-sizing: border-box; }
+
   body {
-    @apply bg-[var(--color-dark-bg)] text-[var(--color-dark-text)] antialiased font-sans selection:bg-primary/30;
+    font-family: 'Inter', system-ui, sans-serif;
+    background-color: var(--color-bg);
+    color: var(--color-text);
+    -webkit-font-smoothing: antialiased;
     margin: 0;
     min-height: 100vh;
   }
 
-  /* Custom Scrollbar */
-  ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-  }
-  ::-webkit-scrollbar-track {
-    background: transparent;
-  }
+  /* Custom scrollbar */
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb {
-    @apply bg-white/10 rounded-full;
+    background: var(--color-border);
+    border-radius: 99px;
   }
-  ::-webkit-scrollbar-thumb:hover {
-    @apply bg-white/20;
-  }
+  ::-webkit-scrollbar-thumb:hover { background: var(--color-secondary); }
 }
 
+/* ─── Utilities ─────────────────────────────────────────────────────────── */
 @layer utilities {
+
+  /* Clean flat panel */
   .glass-panel {
-    @apply bg-[var(--color-dark-panel)]/80 backdrop-blur-md border border-[var(--color-dark-border)] shadow-xl;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 16px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
   }
-  
+
+  /* Sticky clean header */
   .glass-header {
-    @apply bg-[var(--color-dark-bg)]/80 backdrop-blur-md border-b border-[var(--color-dark-border)] sticky top-0 z-10;
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-border);
+    position: sticky;
+    top: 0;
+    z-index: 10;
   }
 
+  /* Input style */
   .glass-input {
-    @apply bg-white/5 border border-white/10 rounded-xl px-4 py-2 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all placeholder-white/30 text-white backdrop-blur-sm;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    padding: 10px 16px;
+    color: var(--color-text);
+    transition: border-color 0.2s, box-shadow 0.2s;
+    outline: none;
+    width: 100%;
+  }
+  .glass-input::placeholder { color: var(--color-text-muted); opacity: 0.8; }
+  .glass-input:focus {
+    border-color: var(--color-tertiary);
+    box-shadow: 0 0 0 2px rgba(189, 170, 116, 0.2);
   }
 
+  /* Primary button — Tertiary (Gold) */
   .btn-primary {
-    @apply bg-primary hover:bg-primary-hover text-white font-medium py-2.5 px-4 rounded-xl shadow-lg shadow-primary/20 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2;
+    background: var(--color-tertiary);
+    color: #1a1203;
+    font-weight: 600;
+    padding: 10px 20px;
+    border-radius: 12px;
+    border: none;
+    cursor: pointer;
+    transition: background 0.18s, transform 0.12s, filter 0.18s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
   }
+  .btn-primary:hover  { filter: brightness(1.1); }
+  .btn-primary:active { transform: scale(0.98); }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; filter: grayscale(1); }
 
+  /* Secondary button */
   .btn-secondary {
-    @apply bg-white/5 hover:bg-white/10 text-white font-medium py-2.5 px-4 rounded-xl transition-all active:scale-[0.98] flex items-center justify-center gap-2 border border-white/5;
+    background: transparent;
+    color: var(--color-text);
+    font-weight: 500;
+    padding: 10px 20px;
+    border-radius: 12px;
+    border: 1px solid var(--color-border);
+    cursor: pointer;
+    transition: background 0.18s, transform 0.12s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
   }
-  
+  .btn-secondary:hover  { background: var(--color-surface); }
+  .btn-secondary:active { transform: scale(0.98); }
+
+  /* Message bubbles */
   .message-bubble-in {
-    @apply bg-[var(--color-dark-panel)] text-white rounded-2xl rounded-tl-sm px-4 py-2.5 shadow-sm max-w-[80%];
+    background: var(--color-tertiary);
+    color: #1a1203;
+    border-radius: 18px 18px 18px 4px;
+    padding: 12px 16px;
+    max-width: 78%;
   }
-  
+
+  /* Outgoing bubble */
   .message-bubble-out {
-    @apply bg-primary text-white rounded-2xl rounded-tr-sm px-4 py-2.5 shadow-sm max-w-[80%];
+    background: var(--color-secondary);
+    color: #ffffff;
+    border-radius: 18px 18px 4px 18px;
+    padding: 12px 16px;
+    max-width: 78%;
   }
 }
 
-/* Animations */
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+/* ─── Animations ────────────────────────────────────────────────────────── */
+@keyframes fadeSlideUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
-
 .animate-fade-in {
-  animation: fadeIn 0.3s ease-out forwards;
+  animation: fadeSlideUp 0.35s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 @keyframes pulse-lock {
-  0% { transform: scale(1); filter: drop-shadow(0 0 0px var(--color-success)); }
-  50% { transform: scale(1.1); filter: drop-shadow(0 0 6px var(--color-success)); }
-  100% { transform: scale(1); filter: drop-shadow(0 0 0px var(--color-success)); }
+  0%   { transform: scale(1); }
+  50%  { transform: scale(1.12); }
+  100% { transform: scale(1); }
 }
-
 .animate-secure-lock {
-  animation: pulse-lock 2s infinite ease-in-out;
-  color: var(--color-success);
+  animation: pulse-lock 2.4s ease-in-out infinite;
+  color: var(--color-tertiary);
 }

@@ -69,8 +69,8 @@ class WebSocketClient {
 
   send(event, payload) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      // Trying the most common framing structures
-      this.ws.send(JSON.stringify({ type: event, event: event, payload, data: payload }));
+      // Send the standard format expected by the backend
+      this.ws.send(JSON.stringify({ event, ...payload }));
     } else {
       console.warn('WebSocket not connected, cannot send event', event);
     }

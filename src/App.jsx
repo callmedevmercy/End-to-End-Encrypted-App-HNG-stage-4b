@@ -12,13 +12,21 @@ function ProtectedRoute({ children }) {
   const { isAuthenticated, privateKey, isInitializing } = useAuthStore();
 
   if (isInitializing) {
-    return <div className="min-h-screen flex items-center justify-center bg-[var(--color-dark-bg)] text-white">Loading session...</div>;
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[var(--color-dark-bg)]">
+        <div className="flex flex-col items-center gap-4 text-white/60">
+          <div className="w-10 h-10 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          <p className="text-sm">Restoring session...</p>
+        </div>
+      </div>
+    );
   }
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
   }
 
+  // Private key was lost on page reload — prompt password to re-derive it
   if (!privateKey) {
     return <SessionUnlock />;
   }
@@ -32,12 +40,15 @@ export default function App() {
   useEffect(() => {
     const token = sessionStorage.getItem('access_token');
     if (token) {
-      // Validate token and fetch user profile
+      // Validate token by fetching the current user profile
       api.get('/auth/me')
         .then((res) => {
-          setAuth(res.data, token);
+          // Pass refresh token too — it may already be in sessionStorage
+          const refreshToken = sessionStorage.getItem('refresh_token');
+          setAuth(res.data, token, refreshToken);
         })
         .catch(() => {
+          // Token invalid or expired and refresh also failed — clean up
           logout();
         })
         .finally(() => {
@@ -53,13 +64,13 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
-        <Route 
-          path="/" 
+        <Route
+          path="/"
           element={
             <ProtectedRoute>
               <ChatDashboard />
             </ProtectedRoute>
-          } 
+          }
         />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
